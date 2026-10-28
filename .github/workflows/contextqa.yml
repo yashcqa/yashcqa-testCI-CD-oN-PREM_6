@@ -20,10 +20,6 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      - uses: actions/checkout@v4
-
-      # Build your app here, so the path below exists.
-
       - name: Run ContextQA test plan
         run: |
           set -eu
@@ -34,28 +30,7 @@ jobs:
           TEST_PLAN_ID="1337"
           POLL_INTERVAL=15
           POLL_TIMEOUT=3600
-          APK_FILE="https://github.com/yashcqa/QA_TestMobile-/releases/download/Prod/app-debug.apk"
-
-          # Upload the Android build into the ContextQA tenant bucket.
-          if [ ! -f "$APK_FILE" ]; then
-            echo "ERROR: no build at $APK_FILE" >&2
-            exit 1
-          fi
-          FILE_NAME=$(basename "$APK_FILE")
-          echo "Uploading $FILE_NAME"
-          PAIR=$(curl -fsS --retry 3 --retry-connrefused -G \
-            "$API_BASE/test_plans/build_upload_url" \
-            --data-urlencode "file_name=$FILE_NAME" \
-            --header "Authorization: Bearer $CONTEXTQA_TOKEN")
-          PUT_URL=$(printf '%s' "$PAIR" | jq -r '.putUrl // empty')
-          APK_BUILD_URL=$(printf '%s' "$PAIR" | jq -r '.key // empty')
-          if [ -z "$PUT_URL" ] || [ -z "$APK_BUILD_URL" ]; then
-            # Deliberately not echoed: the response carries a presigned URL.
-            echo "ERROR: presign response had no putUrl/key" >&2
-            exit 1
-          fi
-          curl -fsS --retry 3 -T "$APK_FILE" "$PUT_URL"
-          echo "Uploaded $FILE_NAME"
+          APK_BUILD_URL="https://github.com/yashcqa/QA_TestMobile-/releases/download/Prod/app-debug.apk"
 
           # Trigger the plan.
           echo "Triggering test plan $TEST_PLAN_ID"
