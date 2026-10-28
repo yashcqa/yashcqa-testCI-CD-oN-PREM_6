@@ -1,0 +1,100 @@
+name: ContextQA Test Plan
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: the job only reads the repo.
+permissions:
+  contents: read
+
+# A newer push supersedes an in-flight run of this workflow.
+concurrency:
+  group: contextqa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contextqa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Run ContextQA test plan
+        run: |
+          set -eu
+
+          : "${CONTEXTQA_TOKEN:?CONTEXTQA_TOKEN is not set — add it as a CI secret}"
+
+          API_BASE="https://server.dev.contextqa.com"
+          TEST_PLAN_ID="1337"
+          POLL_INTERVAL=15
+          POLL_TIMEOUT=3600
+          APK_BUILD_URL="https://github.com/yashcqa/QA_TestMobile-/releases/download/Prod/app-debug.apk"
+
+          # Trigger the plan.
+          echo "Triggering test plan $TEST_PLAN_ID"
+          BODY=$(mktemp)
+          trap 'rm -f "$BODY"' EXIT
+          HTTP_CODE=$(curl -sS -o "$BODY" -w '%{http_code}' --retry 3 --retry-connrefused -G \
+            "$API_BASE/test_plans/$TEST_PLAN_ID/execution" \
+            --data-urlencode "apk_build_url=$APK_BUILD_URL" \
+            --header "Authorization: Bearer $CONTEXTQA_TOKEN")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "ERROR: trigger failed with HTTP $HTTP_CODE" >&2
+            cat "$BODY" >&2
+            exit 1
+          fi
+          RUN_ID=$(jq -r '.id // empty' < "$BODY")
+          if [ -z "$RUN_ID" ]; then
+            echo "ERROR: no run id in the trigger response" >&2
+            cat "$BODY" >&2
+            exit 1
+          fi
+          echo "Started run $RUN_ID"
+
+          # Poll until the run completes, or the deadline passes.
+          DEADLINE=$(( $(date +%s) + POLL_TIMEOUT ))
+          STATUS=""
+          PREV_COMPLETED=""
+          while [ "$STATUS" != "STATUS_COMPLETED" ]; do
+            if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+              echo "ERROR: run $RUN_ID did not finish within ${POLL_TIMEOUT}s" >&2
+              exit 1
+            fi
+            sleep "$POLL_INTERVAL"
+            # A blip must not kill the job mid-run, so a failed poll just retries.
+            RESULTS=$(curl -sS --retry 3 --retry-connrefused \
+              --header "Authorization: Bearer $CONTEXTQA_TOKEN" \
+              "$API_BASE/test_plan_results/$RUN_ID/results" || true)
+            if [ -z "$RESULTS" ]; then
+              echo "No response from the results endpoint, retrying..."
+              continue
+            fi
+            STATUS=$(printf '%s' "$RESULTS" | jq -r '.status // empty')
+            TOTAL=$(printf '%s' "$RESULTS" | jq -r '.totalCount // 0')
+            PASSED=$(printf '%s' "$RESULTS" | jq -r '.passedCount // 0')
+            FAILED=$(printf '%s' "$RESULTS" | jq -r '.failedCount // 0')
+            ABORTED=$(printf '%s' "$RESULTS" | jq -r '.abortedCount // 0')
+            STOPPED=$(printf '%s' "$RESULTS" | jq -r '.stoppedCount // 0')
+            NOT_EXEC=$(printf '%s' "$RESULTS" | jq -r '.notExecutedCount // 0')
+            COMPLETED=$(( PASSED + FAILED + ABORTED + STOPPED + NOT_EXEC ))
+            if [ "$COMPLETED" != "$PREV_COMPLETED" ]; then
+              echo "$STATUS | $COMPLETED/$TOTAL done | passed $PASSED | failed $FAILED"
+              PREV_COMPLETED=$COMPLETED
+            fi
+          done
+
+          RESULT=$(printf '%s' "$RESULTS" | jq -r '.result // empty')
+          REPORT_URL=$(printf '%s' "$RESULTS" | jq -r '.reportFileUrl // empty')
+          echo "Run $RUN_ID finished: $RESULT ($PASSED passed, $FAILED failed of $TOTAL)"
+          [ -n "$REPORT_URL" ] && echo "Report: $REPORT_URL"
+
+          # Gate on the run result, not just the failure count: an aborted or stopped
+          # run reports zero failures but is not a pass.
+          if [ "$RESULT" != "SUCCESS" ]; then
+            echo "ERROR: test plan result was $RESULT" >&2
+            exit 1
+          fi
+        env:
+          CONTEXTQA_TOKEN: ${{ secrets.CONTEXTQA_TOKEN }}
