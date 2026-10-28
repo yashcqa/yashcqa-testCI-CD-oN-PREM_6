@@ -30,7 +30,7 @@ jobs:
           TEST_PLAN_ID="1337"
           POLL_INTERVAL=15
           POLL_TIMEOUT=3600
-          APK_BUILD_URL="https://github.com/yashcqa/QA_TestMobile-/releases/download/Prod/app-debug.apk"
+          APK_BUILD_URL="https://github.com/yashcqa/QA_TestMobile-/releases/download/Prod/File.Upload.Coordinate.check.apk"
 
           # Trigger the plan.
           echo "Triggering test plan $TEST_PLAN_ID"
