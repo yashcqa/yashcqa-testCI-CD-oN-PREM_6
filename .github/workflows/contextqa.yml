@@ -30,7 +30,7 @@ jobs:
           TEST_PLAN_ID="1337"
           POLL_INTERVAL=15
           POLL_TIMEOUT=3600
-          APK_BUILD_URL="https://github.com/yashcqa/QA_TestMobile-/releases/download/Prod/app-debug.apk"
+          IPA_BUILD_URL="https://github.com/yashcqa/QA_TestMobile-/releases/download/Prod/native.app.ipa"
 
           # Trigger the plan.
           echo "Triggering test plan $TEST_PLAN_ID"
@@ -38,7 +38,7 @@ jobs:
           trap 'rm -f "$BODY"' EXIT
           HTTP_CODE=$(curl -sS -o "$BODY" -w '%{http_code}' --retry 3 --retry-connrefused -G \
             "$API_BASE/test_plans/$TEST_PLAN_ID/execution" \
-            --data-urlencode "apk_build_url=$APK_BUILD_URL" \
+            --data-urlencode "ipa_build_url=$IPA_BUILD_URL" \
             --header "Authorization: Bearer $CONTEXTQA_TOKEN")
           if [ "$HTTP_CODE" != "200" ]; then
             echo "ERROR: trigger failed with HTTP $HTTP_CODE" >&2
